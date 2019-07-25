@@ -1,66 +1,98 @@
 import React from "react"
-import { Stack, Text, Link, FontWeights } from "office-ui-fabric-react"
+import { Stack, } from "office-ui-fabric-react"
 import "./index.css"
+import { Monaco, MonacoProps, editor } from "../editor/monaco";
+import { TokenDetailsList } from "../editor/details"
+import { formatEnum } from "../utils"
 
-const boldStyle = { root: { fontWeight: FontWeights.semibold } }
+import * as ts from "typescript";
 
-const App: React.FunctionComponent = () => {
-  return (
-    <Stack
-      horizontalAlign="center"
-      verticalAlign="center"
-      verticalFill
-      styles={{
-        root: {
-          width: "960px",
-          margin: "0 auto",
-          textAlign: "center",
-          color: "#605e5c",
-        },
-      }}
-      className="App"
-      gap={15}
-    >
-      <img
-        src="https://raw.githubusercontent.com/Microsoft/just/master/packages/just-stack-uifabric/template/src/components/fabric.png"
-        alt="logo"
-      />
-      <Text variant="xxLarge" styles={boldStyle}>
-        Welcome to Your UI Fabric App
-      </Text>
-      <Text variant="large">
-        For a guide on how to customize this project, check out the UI Fabric
-        documentation.
-      </Text>
-      <Text variant="large" styles={boldStyle}>
-        Essential Links
-      </Text>
-      <Stack horizontal gap={15} horizontalAlign="center">
-        <Link href="https://developer.microsoft.com/en-us/fabric">Docs</Link>
-        <Link href="https://stackoverflow.com/questions/tagged/office-ui-fabric">
-          Stack Overflow
-        </Link>
-        <Link href="https://github.com/officeDev/office-ui-fabric-react/">
-          Github
-        </Link>
-        <Link href="https://twitter.com/officeuifabric">Twitter</Link>
-      </Stack>
-      <Text variant="large" styles={boldStyle}>
-        Design System
-      </Text>
-      <Stack horizontal gap={15} horizontalAlign="center">
-        <Link href="https://developer.microsoft.com/en-us/fabric#/styles/icons">
-          Icons
-        </Link>
-        <Link href="https://developer.microsoft.com/en-us/fabric#/styles/typography">
-          Typography
-        </Link>
-        <Link href="https://developer.microsoft.com/en-us/fabric#/styles/themegenerator">
-          Theme
-        </Link>
-      </Stack>
-    </Stack>
-  )
+const scanner = ts.createScanner(ts.ScriptTarget.Latest, false);
+
+// That is initialized using a function `initializeState` similar to
+function initializeScannerState(text: string) {
+  scanner.setText(text);
+  scanner.setOnError((message: ts.DiagnosticMessage, length: number) => {
+    console.error(message);
+  });
+  scanner.setScriptTarget(ts.ScriptTarget.ES5);
+  scanner.setLanguageVariant(ts.LanguageVariant.Standard);
+}
+
+export interface TokenInfo {
+  kind: ts.SyntaxKind
+  token: string
+  end: number
+}
+
+interface State {
+  tokens: TokenInfo[]
+}
+
+export class App extends React.Component<any, State> {
+  state = { tokens: [] }
+
+  getTokens: MonacoProps["onEditorUpdated"] = (e) => {
+    const tokens: TokenInfo[] = []
+
+    const text = e.getModel().getValue()
+    initializeScannerState(text)
+
+    while (tokens.length) {
+      tokens.pop()
+    }
+
+    let kind;
+    while (kind != ts.SyntaxKind.EndOfFileToken) {
+      kind = scanner.scan();
+      const end = scanner.getTextPos()
+      tokens.push({
+        kind,
+        token: formatEnum(kind, ts.SyntaxKind),
+        end,
+      })
+    }
+
+    this.setState({ tokens })
+  }
+
+  onHoverToken = (event: { item: TokenInfo }) => {
+    if (!editor) return
+    const monacoEditor = editor as import("monaco-editor").editor.IStandaloneCodeEditor
+    const model = monacoEditor.getModel()
+
+    const beforeIndex = this.state.tokens.indexOf(event.item) - 1
+
+    let startPos = model.getPositionAt(0)
+    if (beforeIndex >= 0) {
+      const beforeToken = this.state.tokens[beforeIndex]
+      startPos = model.getPositionAt(beforeToken.end)
+    }
+    const endPos = model.getPositionAt(event.item.end)
+
+    // monacoEditor.getPos
+    monacoEditor.setSelection({
+      selectionStartLineNumber: startPos.lineNumber,
+      selectionStartColumn: startPos.column,
+      positionLineNumber: endPos.lineNumber,
+      positionColumn: endPos.column,
+    })
+
+  }
+
+  render() {
+    return (
+      <div className="page-content">
+        <Stack horizontal gap={15} horizontalAlign="center">
+          <Monaco onEditorUpdated={this.getTokens} ></Monaco>
+          <div style={{ width: 400, height: 600, overflowY: "scroll" }}>
+            <TokenDetailsList onHoverToken={this.onHoverToken} tokens={this.state.tokens}></TokenDetailsList>
+          </div>
+        </Stack>
+      </div>
+
+    )
+  }
 }
 
 export default App
